@@ -69,16 +69,30 @@ namespace IdentitySample.Models
     }
 
     // Configure the RoleManager used in the application. RoleManager is defined in the ASP.NET Identity core assembly
-    public class ApplicationRoleManager : RoleManager<IdentityRole>
+    //public class ApplicationRoleManager : RoleManager<IdentityRole>
+    //{
+    //    public ApplicationRoleManager(IRoleStore<IdentityRole, string> roleStore)
+    //        : base(roleStore)
+    //    {
+    //    }
+
+    //    public static ApplicationRoleManager Create(IdentityFactoryOptions<ApplicationRoleManager> options, IOwinContext context)
+    //    {
+    //        return new ApplicationRoleManager(new RoleStore<IdentityRole>(context.Get<ApplicationDbContext>()));
+    //    }
+    //}
+
+    public class ApplicationRoleManager : RoleManager<ApplicationRole>
     {
-        public ApplicationRoleManager(IRoleStore<IdentityRole,string> roleStore)
+        public ApplicationRoleManager(IRoleStore<ApplicationRole, string> roleStore)
             : base(roleStore)
         {
+
         }
 
         public static ApplicationRoleManager Create(IdentityFactoryOptions<ApplicationRoleManager> options, IOwinContext context)
         {
-            return new ApplicationRoleManager(new RoleStore<IdentityRole>(context.Get<ApplicationDbContext>()));
+            return new ApplicationRoleManager(new RoleStore<ApplicationRole>(context.Get<ApplicationDbContext>()));
         }
     }
 
@@ -103,15 +117,17 @@ namespace IdentitySample.Models
     // This is useful if you do not want to tear down the database each time you run the application.
     // public class ApplicationDbInitializer : DropCreateDatabaseAlways<ApplicationDbContext>
     // This example shows you how to create a new database if the Model changes
-    public class ApplicationDbInitializer : DropCreateDatabaseIfModelChanges<ApplicationDbContext> 
+    public class ApplicationDbInitializer : DropCreateDatabaseIfModelChanges<ApplicationDbContext>
     {
-        protected override void Seed(ApplicationDbContext context) {
+        protected override void Seed(ApplicationDbContext context)
+        {
             InitializeIdentityForEF(context);
             base.Seed(context);
         }
 
         //Create User=Admin@Admin.com with password=Admin@123456 in the Admin role        
-        public static void InitializeIdentityForEF(ApplicationDbContext db) {
+        public static void InitializeIdentityForEF(ApplicationDbContext db)
+        {
             var userManager = HttpContext.Current.GetOwinContext().GetUserManager<ApplicationUserManager>();
             var roleManager = HttpContext.Current.GetOwinContext().Get<ApplicationRoleManager>();
             const string name = "admin@example.com";
@@ -120,13 +136,15 @@ namespace IdentitySample.Models
 
             //Create Role Admin if it does not exist
             var role = roleManager.FindByName(roleName);
-            if (role == null) {
-                role = new IdentityRole(roleName);
+            if (role == null)
+            {
+                role = new ApplicationRole(roleName);
                 var roleresult = roleManager.Create(role);
             }
 
             var user = userManager.FindByName(name);
-            if (user == null) {
+            if (user == null)
+            {
                 user = new ApplicationUser { UserName = name, Email = name };
                 var result = userManager.Create(user, password);
                 result = userManager.SetLockoutEnabled(user.Id, false);
@@ -134,7 +152,8 @@ namespace IdentitySample.Models
 
             // Add user admin to Role Admin if not already added
             var rolesForUser = userManager.GetRoles(user.Id);
-            if (!rolesForUser.Contains(role.Name)) {
+            if (!rolesForUser.Contains(role.Name))
+            {
                 var result = userManager.AddToRole(user.Id, role.Name);
             }
         }
@@ -142,8 +161,9 @@ namespace IdentitySample.Models
 
     public class ApplicationSignInManager : SignInManager<ApplicationUser, string>
     {
-        public ApplicationSignInManager(ApplicationUserManager userManager, IAuthenticationManager authenticationManager) : 
-            base(userManager, authenticationManager) { }
+        public ApplicationSignInManager(ApplicationUserManager userManager, IAuthenticationManager authenticationManager) :
+            base(userManager, authenticationManager)
+        { }
 
         public override Task<ClaimsIdentity> CreateUserIdentityAsync(ApplicationUser user)
         {
@@ -153,6 +173,197 @@ namespace IdentitySample.Models
         public static ApplicationSignInManager Create(IdentityFactoryOptions<ApplicationSignInManager> options, IOwinContext context)
         {
             return new ApplicationSignInManager(context.GetUserManager<ApplicationUserManager>(), context.Authentication);
+        }
+    }
+
+    public class SignInHelper
+    {
+        public SignInHelper(
+            ApplicationUserManager userManager,
+            IAuthenticationManager authManager)
+        {
+            UserManager = userManager;
+            AuthenticationManager = authManager;
+        }
+
+
+        public ApplicationUserManager UserManager { get; private set; }
+        public IAuthenticationManager AuthenticationManager { get; private set; }
+
+
+        public async Task SignInAsync(
+            ApplicationUser user,
+            bool isPersistent,
+            bool rememberBrowser)
+        {
+            // Clear any partial cookies from external or two factor partial sign ins
+            AuthenticationManager.SignOut(
+                DefaultAuthenticationTypes.ExternalCookie,
+                DefaultAuthenticationTypes.TwoFactorCookie);
+            var userIdentity = await user.GenerateUserIdentityAsync(UserManager);
+            if (rememberBrowser)
+            {
+                var rememberBrowserIdentity =
+                    AuthenticationManager.CreateTwoFactorRememberBrowserIdentity(user.Id);
+                AuthenticationManager.SignIn(
+                    new AuthenticationProperties { IsPersistent = isPersistent },
+                    userIdentity,
+                    rememberBrowserIdentity);
+            }
+            else
+            {
+                AuthenticationManager.SignIn(
+                    new AuthenticationProperties { IsPersistent = isPersistent },
+                    userIdentity);
+            }
+        }
+
+
+        public async Task<bool> SendTwoFactorCode(string provider)
+        {
+            var userId = await GetVerifiedUserIdAsync();
+            if (userId == null)
+            {
+                return false;
+            }
+
+            var token = await UserManager.GenerateTwoFactorTokenAsync(userId, provider);
+
+            // See IdentityConfig.cs to plug in Email/SMS services to actually send the code
+            await UserManager.NotifyTwoFactorTokenAsync(userId, provider, token);
+            return true;
+        }
+
+
+        public async Task<string> GetVerifiedUserIdAsync()
+        {
+            var result = await AuthenticationManager.AuthenticateAsync(
+                DefaultAuthenticationTypes.TwoFactorCookie);
+
+            if (result != null && result.Identity != null
+                && !String.IsNullOrEmpty(result.Identity.GetUserId()))
+            {
+                return result.Identity.GetUserId();
+            }
+            return null;
+        }
+
+
+        public async Task<bool> HasBeenVerified()
+        {
+            return await GetVerifiedUserIdAsync() != null;
+        }
+
+
+        public async Task<SignInStatus> TwoFactorSignIn(
+            string provider,
+            string code,
+            bool isPersistent,
+            bool rememberBrowser)
+        {
+            var userId = await GetVerifiedUserIdAsync();
+            if (userId == null)
+            {
+                return SignInStatus.Failure;
+            }
+
+            var user = await UserManager.FindByIdAsync(userId);
+            if (user == null)
+            {
+                return SignInStatus.Failure;
+            }
+
+            if (await UserManager.IsLockedOutAsync(user.Id))
+            {
+                return SignInStatus.LockedOut;
+            }
+
+            if (await UserManager.VerifyTwoFactorTokenAsync(user.Id, provider, code))
+            {
+                // When token is verified correctly, clear the access failed 
+                // count used for lockout
+                await UserManager.ResetAccessFailedCountAsync(user.Id);
+                await SignInAsync(user, isPersistent, rememberBrowser);
+                return SignInStatus.Success;
+            }
+
+            // If the token is incorrect, record the failure which 
+            // also may cause the user to be locked out
+            await UserManager.AccessFailedAsync(user.Id);
+            return SignInStatus.Failure;
+        }
+
+
+        public async Task<SignInStatus> ExternalSignIn(
+            ExternalLoginInfo loginInfo,
+            bool isPersistent)
+        {
+            var user = await UserManager.FindAsync(loginInfo.Login);
+            if (user == null)
+            {
+                return SignInStatus.Failure;
+            }
+
+            if (await UserManager.IsLockedOutAsync(user.Id))
+            {
+                return SignInStatus.LockedOut;
+            }
+
+            return await SignInOrTwoFactor(user, isPersistent);
+        }
+
+
+        private async Task<SignInStatus> SignInOrTwoFactor(
+            ApplicationUser user,
+            bool isPersistent)
+        {
+            if (await UserManager.GetTwoFactorEnabledAsync(user.Id) &&
+                !await AuthenticationManager.TwoFactorBrowserRememberedAsync(user.Id))
+            {
+                var identity = new ClaimsIdentity(DefaultAuthenticationTypes.TwoFactorCookie);
+                identity.AddClaim(new Claim(ClaimTypes.NameIdentifier, user.Id));
+                AuthenticationManager.SignIn(identity);
+                return SignInStatus.RequiresVerification;
+                //.RequiresTwoFactorAuthentication;
+            }
+            await SignInAsync(user, isPersistent, false);
+            return SignInStatus.Success;
+        }
+
+
+        public async Task<SignInStatus> PasswordSignIn(
+            string userName,
+            string password,
+            bool isPersistent,
+            bool shouldLockout)
+        {
+            var user = await UserManager.FindByNameAsync(userName);
+            if (user == null)
+            {
+                return SignInStatus.Failure;
+            }
+
+            if (await UserManager.IsLockedOutAsync(user.Id))
+            {
+                return SignInStatus.LockedOut;
+            }
+
+            if (await UserManager.CheckPasswordAsync(user, password))
+            {
+                return await SignInOrTwoFactor(user, isPersistent);
+            }
+
+            if (shouldLockout)
+            {
+                // If lockout is requested, increment access failed 
+                // count which might lock out the user
+                await UserManager.AccessFailedAsync(user.Id);
+                if (await UserManager.IsLockedOutAsync(user.Id))
+                {
+                    return SignInStatus.LockedOut;
+                }
+            }
+            return SignInStatus.Failure;
         }
     }
 }

@@ -98,7 +98,9 @@ namespace IdentitySample.Controllers
         {
             if (ModelState.IsValid)
             {
-                var role = new IdentityRole(roleViewModel.Name);
+                var role = new ApplicationRole(roleViewModel.Name);
+                role.Description = roleViewModel.Description;
+
                 var roleresult = await RoleManager.CreateAsync(role);
                 if (!roleresult.Succeeded)
                 {
@@ -123,7 +125,7 @@ namespace IdentitySample.Controllers
             {
                 return HttpNotFound();
             }
-            RoleViewModel roleModel = new RoleViewModel { Id = role.Id, Name = role.Name };
+            RoleViewModel roleModel = new RoleViewModel { Id = role.Id, Name = role.Name , Description = role.Description};
             return View(roleModel);
         }
 
@@ -132,12 +134,13 @@ namespace IdentitySample.Controllers
         [HttpPost]
 
         [ValidateAntiForgeryToken]
-        public async Task<ActionResult> Edit([Bind(Include = "Name,Id")] RoleViewModel roleModel)
+        public async Task<ActionResult> Edit([Bind(Include = "Name,Id, Description")] RoleViewModel roleModel)
         {
             if (ModelState.IsValid)
             {
                 var role = await RoleManager.FindByIdAsync(roleModel.Id);
                 role.Name = roleModel.Name;
+                role.Description = roleModel.Description;
                 await RoleManager.UpdateAsync(role);
                 return RedirectToAction("Index");
             }

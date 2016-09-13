@@ -13,7 +13,7 @@ using System.Web.Mvc;
 
 namespace IdentitySample.Controllers
 {
-    [Authorize(Roles = "Admin")]
+    //[Authorize(Roles = "Admin")]
     public class UsersAdminController : Controller
     {
         public UsersAdminController()
@@ -90,7 +90,22 @@ namespace IdentitySample.Controllers
         {
             if (ModelState.IsValid)
             {
-                var user = new ApplicationUser { UserName = userViewModel.Email, Email = userViewModel.Email };
+                var user = new ApplicationUser
+                {
+                    UserName = userViewModel.Email,
+                    Email = userViewModel.Email,
+
+                    Address = userViewModel.Address,
+                    City = userViewModel.City,
+                    State = userViewModel.State,
+                    PostalCode = userViewModel.PostalCode
+                };
+
+                // Add the Address Info:
+                user.Address = userViewModel.Address;
+                user.City = userViewModel.City;
+                user.State = userViewModel.State;
+                user.PostalCode = userViewModel.PostalCode;
                 var adminresult = await UserManager.CreateAsync(user, userViewModel.Password);
 
                 //Add User to the selected Roles 
@@ -140,6 +155,11 @@ namespace IdentitySample.Controllers
             {
                 Id = user.Id,
                 Email = user.Email,
+                // Include the Addresss info:
+                Address = user.Address,
+                City = user.City,
+                State = user.State,
+                PostalCode = user.PostalCode,
                 RolesList = RoleManager.Roles.ToList().Select(x => new SelectListItem()
                 {
                     Selected = userRoles.Contains(x.Name),
@@ -165,6 +185,11 @@ namespace IdentitySample.Controllers
 
                 user.UserName = editUser.Email;
                 user.Email = editUser.Email;
+                user.Address = editUser.Address;
+                user.City = editUser.City;
+                user.State = editUser.State;
+                user.PostalCode = editUser.PostalCode;
+
 
                 var userRoles = await UserManager.GetRolesAsync(user.Id);
 

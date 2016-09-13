@@ -10,6 +10,9 @@ namespace IdentitySample.Models
         [Required(AllowEmptyStrings = false)]
         [Display(Name = "RoleName")]
         public string Name { get; set; }
+
+        [Display(Name = "Description Role")]
+        public string Description { get; set; }
     }
 
     public class EditUserViewModel
@@ -21,6 +24,11 @@ namespace IdentitySample.Models
         [EmailAddress]
         public string Email { get; set; }
 
+        // Add the Address Info:
+        public string Address { get; set; }
+        public string City { get; set; }
+        public string State { get; set; }
+        public string PostalCode { get; set; }
         public IEnumerable<SelectListItem> RolesList { get; set; }
     }
 }
