@@ -15,9 +15,9 @@ namespace IdentitySample.Models
 {
     // Configure the application user manager used in this application. UserManager is defined in ASP.NET Identity and is used by the application.
 
-    public class ApplicationUserManager : UserManager<ApplicationUser>
+    public class ApplicationUserManager : UserManager<ApplicationUser,int>
     {
-        public ApplicationUserManager(IUserStore<ApplicationUser> store)
+        public ApplicationUserManager(IUserStore<ApplicationUser,int> store)
             : base(store)
         {
         }
@@ -25,9 +25,9 @@ namespace IdentitySample.Models
         public static ApplicationUserManager Create(IdentityFactoryOptions<ApplicationUserManager> options,
             IOwinContext context)
         {
-            var manager = new ApplicationUserManager(new UserStore<ApplicationUser>(context.Get<ApplicationDbContext>()));
+            var manager = new ApplicationUserManager(new ApplicationUserStore(context.Get<ApplicationDbContext>()));
             // Configure validation logic for usernames
-            manager.UserValidator = new UserValidator<ApplicationUser>(manager)
+            manager.UserValidator = new UserValidator<ApplicationUser,int>(manager)
             {
                 AllowOnlyAlphanumericUserNames = false,
                 RequireUniqueEmail = true
@@ -47,11 +47,11 @@ namespace IdentitySample.Models
             manager.MaxFailedAccessAttemptsBeforeLockout = 5;
             // Register two factor authentication providers. This application uses Phone and Emails as a step of receiving a code for verifying the user
             // You can write your own provider and plug in here.
-            manager.RegisterTwoFactorProvider("PhoneCode", new PhoneNumberTokenProvider<ApplicationUser>
+            manager.RegisterTwoFactorProvider("PhoneCode", new PhoneNumberTokenProvider<ApplicationUser,int>
             {
                 MessageFormat = "Your security code is: {0}"
             });
-            manager.RegisterTwoFactorProvider("EmailCode", new EmailTokenProvider<ApplicationUser>
+            manager.RegisterTwoFactorProvider("EmailCode", new EmailTokenProvider<ApplicationUser, int>
             {
                 Subject = "SecurityCode",
                 BodyFormat = "Your security code is {0}"
@@ -62,7 +62,7 @@ namespace IdentitySample.Models
             if (dataProtectionProvider != null)
             {
                 manager.UserTokenProvider =
-                    new DataProtectorTokenProvider<ApplicationUser>(dataProtectionProvider.Create("ASP.NET Identity"));
+                    new DataProtectorTokenProvider<ApplicationUser,int>(dataProtectionProvider.Create("ASP.NET Identity"));
             }
             return manager;
         }
@@ -82,9 +82,9 @@ namespace IdentitySample.Models
     //    }
     //}
 
-    public class ApplicationRoleManager : RoleManager<ApplicationRole>
+    public class ApplicationRoleManager : RoleManager<ApplicationRole,int>
     {
-        public ApplicationRoleManager(IRoleStore<ApplicationRole, string> roleStore)
+        public ApplicationRoleManager(IRoleStore<ApplicationRole, int> roleStore)
             : base(roleStore)
         {
 
@@ -92,7 +92,7 @@ namespace IdentitySample.Models
 
         public static ApplicationRoleManager Create(IdentityFactoryOptions<ApplicationRoleManager> options, IOwinContext context)
         {
-            return new ApplicationRoleManager(new RoleStore<ApplicationRole>(context.Get<ApplicationDbContext>()));
+            return new ApplicationRoleManager(new ApplicationRoleStore(context.Get<ApplicationDbContext>()));
         }
     }
 
@@ -138,7 +138,7 @@ namespace IdentitySample.Models
             var role = roleManager.FindByName(roleName);
             if (role == null)
             {
-                role = new ApplicationRole(roleName);
+                role = new ApplicationRole(roleName,"admin role");
                 var roleresult = roleManager.Create(role);
             }
 
@@ -159,7 +159,7 @@ namespace IdentitySample.Models
         }
     }
 
-    public class ApplicationSignInManager : SignInManager<ApplicationUser, string>
+    public class ApplicationSignInManager : SignInManager<ApplicationUser, int>
     {
         public ApplicationSignInManager(ApplicationUserManager userManager, IAuthenticationManager authenticationManager) :
             base(userManager, authenticationManager)
@@ -173,197 +173,6 @@ namespace IdentitySample.Models
         public static ApplicationSignInManager Create(IdentityFactoryOptions<ApplicationSignInManager> options, IOwinContext context)
         {
             return new ApplicationSignInManager(context.GetUserManager<ApplicationUserManager>(), context.Authentication);
-        }
-    }
-
-    public class SignInHelper
-    {
-        public SignInHelper(
-            ApplicationUserManager userManager,
-            IAuthenticationManager authManager)
-        {
-            UserManager = userManager;
-            AuthenticationManager = authManager;
-        }
-
-
-        public ApplicationUserManager UserManager { get; private set; }
-        public IAuthenticationManager AuthenticationManager { get; private set; }
-
-
-        public async Task SignInAsync(
-            ApplicationUser user,
-            bool isPersistent,
-            bool rememberBrowser)
-        {
-            // Clear any partial cookies from external or two factor partial sign ins
-            AuthenticationManager.SignOut(
-                DefaultAuthenticationTypes.ExternalCookie,
-                DefaultAuthenticationTypes.TwoFactorCookie);
-            var userIdentity = await user.GenerateUserIdentityAsync(UserManager);
-            if (rememberBrowser)
-            {
-                var rememberBrowserIdentity =
-                    AuthenticationManager.CreateTwoFactorRememberBrowserIdentity(user.Id);
-                AuthenticationManager.SignIn(
-                    new AuthenticationProperties { IsPersistent = isPersistent },
-                    userIdentity,
-                    rememberBrowserIdentity);
-            }
-            else
-            {
-                AuthenticationManager.SignIn(
-                    new AuthenticationProperties { IsPersistent = isPersistent },
-                    userIdentity);
-            }
-        }
-
-
-        public async Task<bool> SendTwoFactorCode(string provider)
-        {
-            var userId = await GetVerifiedUserIdAsync();
-            if (userId == null)
-            {
-                return false;
-            }
-
-            var token = await UserManager.GenerateTwoFactorTokenAsync(userId, provider);
-
-            // See IdentityConfig.cs to plug in Email/SMS services to actually send the code
-            await UserManager.NotifyTwoFactorTokenAsync(userId, provider, token);
-            return true;
-        }
-
-
-        public async Task<string> GetVerifiedUserIdAsync()
-        {
-            var result = await AuthenticationManager.AuthenticateAsync(
-                DefaultAuthenticationTypes.TwoFactorCookie);
-
-            if (result != null && result.Identity != null
-                && !String.IsNullOrEmpty(result.Identity.GetUserId()))
-            {
-                return result.Identity.GetUserId();
-            }
-            return null;
-        }
-
-
-        public async Task<bool> HasBeenVerified()
-        {
-            return await GetVerifiedUserIdAsync() != null;
-        }
-
-
-        public async Task<SignInStatus> TwoFactorSignIn(
-            string provider,
-            string code,
-            bool isPersistent,
-            bool rememberBrowser)
-        {
-            var userId = await GetVerifiedUserIdAsync();
-            if (userId == null)
-            {
-                return SignInStatus.Failure;
-            }
-
-            var user = await UserManager.FindByIdAsync(userId);
-            if (user == null)
-            {
-                return SignInStatus.Failure;
-            }
-
-            if (await UserManager.IsLockedOutAsync(user.Id))
-            {
-                return SignInStatus.LockedOut;
-            }
-
-            if (await UserManager.VerifyTwoFactorTokenAsync(user.Id, provider, code))
-            {
-                // When token is verified correctly, clear the access failed 
-                // count used for lockout
-                await UserManager.ResetAccessFailedCountAsync(user.Id);
-                await SignInAsync(user, isPersistent, rememberBrowser);
-                return SignInStatus.Success;
-            }
-
-            // If the token is incorrect, record the failure which 
-            // also may cause the user to be locked out
-            await UserManager.AccessFailedAsync(user.Id);
-            return SignInStatus.Failure;
-        }
-
-
-        public async Task<SignInStatus> ExternalSignIn(
-            ExternalLoginInfo loginInfo,
-            bool isPersistent)
-        {
-            var user = await UserManager.FindAsync(loginInfo.Login);
-            if (user == null)
-            {
-                return SignInStatus.Failure;
-            }
-
-            if (await UserManager.IsLockedOutAsync(user.Id))
-            {
-                return SignInStatus.LockedOut;
-            }
-
-            return await SignInOrTwoFactor(user, isPersistent);
-        }
-
-
-        private async Task<SignInStatus> SignInOrTwoFactor(
-            ApplicationUser user,
-            bool isPersistent)
-        {
-            if (await UserManager.GetTwoFactorEnabledAsync(user.Id) &&
-                !await AuthenticationManager.TwoFactorBrowserRememberedAsync(user.Id))
-            {
-                var identity = new ClaimsIdentity(DefaultAuthenticationTypes.TwoFactorCookie);
-                identity.AddClaim(new Claim(ClaimTypes.NameIdentifier, user.Id));
-                AuthenticationManager.SignIn(identity);
-                return SignInStatus.RequiresVerification;
-                //.RequiresTwoFactorAuthentication;
-            }
-            await SignInAsync(user, isPersistent, false);
-            return SignInStatus.Success;
-        }
-
-
-        public async Task<SignInStatus> PasswordSignIn(
-            string userName,
-            string password,
-            bool isPersistent,
-            bool shouldLockout)
-        {
-            var user = await UserManager.FindByNameAsync(userName);
-            if (user == null)
-            {
-                return SignInStatus.Failure;
-            }
-
-            if (await UserManager.IsLockedOutAsync(user.Id))
-            {
-                return SignInStatus.LockedOut;
-            }
-
-            if (await UserManager.CheckPasswordAsync(user, password))
-            {
-                return await SignInOrTwoFactor(user, isPersistent);
-            }
-
-            if (shouldLockout)
-            {
-                // If lockout is requested, increment access failed 
-                // count which might lock out the user
-                await UserManager.AccessFailedAsync(user.Id);
-                if (await UserManager.IsLockedOutAsync(user.Id))
-                {
-                    return SignInStatus.LockedOut;
-                }
-            }
-            return SignInStatus.Failure;
         }
     }
 }
